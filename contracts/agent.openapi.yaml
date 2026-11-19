@@ -1,0 +1,119 @@
+openapi: 3.1.0
+info:
+  title: FleetOps Agent API
+  version: 0.1.0
+security:
+  - bearer: []
+paths:
+  /api/v1/session:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              additionalProperties: false
+              properties:
+                credential: { type: string, minLength: 1, maxLength: 512 }
+      responses:
+        '200':
+          description: Interactive session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { description: Invalid credential }
+        '429': { description: Login rate limited }
+    get:
+      responses:
+        '200':
+          description: Interactive session identity and expiry, never the token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [nodeId, expiresAt]
+                properties:
+                  nodeId: { type: string }
+                  expiresAt: { type: string, format: date-time }
+        '401': { description: Invalid or expired session }
+        '403': { description: Machine token is not an interactive session }
+    delete:
+      responses:
+        '204': { description: Session revoked }
+        '401': { description: Invalid session }
+        '403': { description: Machine token cannot revoke sessions }
+  /api/v1/status:
+    get:
+      responses:
+        '200':
+          description: Interactive or monitor-read access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Status' }
+        '401': { description: Authentication required }
+        '503': { description: Initial sample not available }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+  schemas:
+    Session:
+      type: object
+      required: [token, nodeId, expiresAt]
+      properties:
+        token: { type: string }
+        nodeId: { type: string }
+        expiresAt: { type: string, format: date-time }
+    Usage:
+      type: object
+      required: [totalBytes, usedBytes, usedPercent]
+      properties:
+        totalBytes: { type: integer, minimum: 0 }
+        usedBytes: { type: integer, minimum: 0 }
+        usedPercent: { type: number, minimum: 0, maximum: 100 }
+    Status:
+      type: object
+      required: [apiVersion, nodeId, hostname, system, agentVersion, metricsScope, sampledAt, agentStartedAt, uptimeSeconds, cpu, memory, disk]
+      properties:
+        apiVersion: { type: string, const: '1' }
+        nodeId: { type: string }
+        hostname: { type: string }
+        system:
+          type: object
+          required: [os, platform, kernel, arch]
+          properties:
+            os: { type: string }
+            platform: { type: string }
+            kernel: { type: string }
+            arch: { type: string }
+        agentVersion: { type: string }
+        metricsScope: { enum: [host, container-test] }
+        sampledAt: { type: string, format: date-time }
+        agentStartedAt: { type: string, format: date-time }
+        uptimeSeconds: { type: integer, minimum: 0 }
+        cpu:
+          type: object
+          required: [logicalCount, usagePercent]
+          properties:
+            logicalCount: { type: integer, minimum: 1 }
+            usagePercent: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        memory:
+          oneOf:
+            - { $ref: '#/components/schemas/Usage' }
+            - { type: 'null' }
+        disk:
+          oneOf:
+            - { $ref: '#/components/schemas/Usage' }
+            - { type: 'null' }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }

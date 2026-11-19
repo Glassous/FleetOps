@@ -1,0 +1,5 @@
+listen: 0.0.0.0:18080
+data_dir: /data/state
+allowed_origins: [https://web.fixture.test]
+sample_interval_seconds: 1
+metrics_scope: container-test

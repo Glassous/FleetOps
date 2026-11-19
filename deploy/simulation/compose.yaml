@@ -1,0 +1,41 @@
+name: fleetops-simulation
+x-service: &service
+  image: fleetops-simulation:local
+  build:
+    context: ../..
+    dockerfile: deploy/simulation/Dockerfile
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ['/tmp:size=16m,noexec,nosuid']
+  mem_limit: 192m
+  cpus: 0.5
+  networks: [simulation]
+  logging:
+    driver: json-file
+    options:
+      max-size: 2m
+      max-file: '2'
+services:
+  a1:
+    <<: *service
+    command: [a]
+    ports: [127.0.0.1:18180:18080]
+    volumes: [a1-data:/data]
+  a2:
+    <<: *service
+    command: [a]
+    ports: [127.0.0.1:18181:18080]
+    volumes: [a2-data:/data]
+  b:
+    <<: *service
+    command: [b]
+    ports: [127.0.0.1:18182:18081]
+    volumes: [b-data:/data]
+networks:
+  simulation:
+    driver: bridge
+volumes:
+  a1-data:
+  a2-data:
+  b-data:

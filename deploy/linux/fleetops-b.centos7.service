@@ -1,0 +1,24 @@
+[Unit]
+Description=FleetOps continuous monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=fleetops-b
+Group=fleetops-b
+WorkingDirectory=/var/lib/fleetops-b
+ExecStart=/opt/fleetops/b/fleetops-b serve --config /etc/fleetops/b/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWriteDirectories=/var/lib/fleetops-b
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

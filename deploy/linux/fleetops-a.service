@@ -1,0 +1,28 @@
+[Unit]
+Description=FleetOps node agent
+After=network.target
+
+[Service]
+Type=simple
+User=fleetops-a
+Group=fleetops-a
+WorkingDirectory=/var/lib/fleetops-a
+ExecStart=/opt/fleetops/a/fleetops-a serve --config /etc/fleetops/a/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+StateDirectory=fleetops-a
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/fleetops-a
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=100
+
+[Install]
+WantedBy=multi-user.target

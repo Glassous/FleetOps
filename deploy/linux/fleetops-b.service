@@ -1,0 +1,29 @@
+[Unit]
+Description=FleetOps continuous monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=fleetops-b
+Group=fleetops-b
+WorkingDirectory=/var/lib/fleetops-b
+ExecStart=/opt/fleetops/b/fleetops-b serve --config /etc/fleetops/b/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+StateDirectory=fleetops-b
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/fleetops-b
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=100
+
+[Install]
+WantedBy=multi-user.target

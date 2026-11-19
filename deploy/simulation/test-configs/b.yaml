@@ -1,0 +1,9 @@
+listen: 0.0.0.0:18081
+data_dir: /data/state
+allowed_origins: [https://web.fixture.test]
+targets_file: /data/targets.yaml
+poll_interval_seconds: 2
+timeout_seconds: 1
+failure_threshold: 3
+stale_after_seconds: 6
+retention_days: 30

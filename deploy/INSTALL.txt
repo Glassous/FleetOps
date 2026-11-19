@@ -1,0 +1,148 @@
+FleetOps 0.1.0 — 安装与验证
+
+范围
+A/B 正式部署为独立 Linux 原生二进制 + systemd。deploy/simulation 仅为测试夹具，不能替代正式安装。
+C-Windows 直接连接 A/B，B 仅持续巡检，不代理 C 的操作。A 和 B 可以安装在同一服务器。
+当前产物针对 Linux amd64 和 Windows x64；其他架构没有验收。EXE 未签名，不应关闭系统安全防护。
+HTTP 会明文发送凭据、机器 token 和数据。公网长期使用推荐独立反代 HTTPS。
+以下通用安装命令供管理员手工执行；VM 专项测试只在明确授权的测试机创建 FleetOps 用户、目录和 systemd 服务，不修改 1Panel、防火墙、hosts、系统 CA 或无关服务。
+
+一、构建（从项目根目录执行，POSIX shell）
+A/B 使用 go.mod 指定工具链，桌面 Mygo 0.10.0 使用 Go 1.27.3。
+  (cd a-agent && go test ./... && go vet ./... && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/fleetops-a ./cmd/fleetops-a)
+  (cd b-monitor && go test ./... && go vet ./... && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/fleetops-b ./cmd/fleetops-b)
+  npm --prefix c-web ci
+  npm --prefix c-web test
+  npm --prefix c-web run build
+  npm --prefix c-desktop ci
+  npm --prefix c-desktop run build
+产物：a-agent/build/fleetops-a、b-monitor/build/fleetops-b、c-web/dist/、c-desktop/build/windows-amd64/。
+桌面发布时保留同目录 MYGO-LICENSE.txt，需要已安装 Microsoft WebView2 Runtime。
+双击 FleetOps.exe 即可，不需要 Vite、Node 或 B 常驻本机；清单保存在客户端本地，登录会话仅在内存。
+
+二、A 首次安装（在目标 Linux 上）
+把 a-agent/build/fleetops-a 及 deploy/linux/ 上传到服务器某个临时目录。
+以下命令假设当前位置包含 fleetops-a、a.example.yaml、fleetops-a.service；仅用于首次安装，已有配置不要覆盖。
+  sudo useradd --system --user-group --home-dir /var/lib/fleetops-a --shell /usr/sbin/nologin fleetops-a
+  sudo install -d -m 0755 /opt/fleetops/a
+  sudo install -d -o fleetops-a -g fleetops-a -m 0700 /etc/fleetops/a /var/lib/fleetops-a
+  sudo install -m 0755 fleetops-a /opt/fleetops/a/fleetops-a
+  sudo install -o fleetops-a -g fleetops-a -m 0600 a.example.yaml /etc/fleetops/a/config.yaml
+先编辑 config.yaml：默认仅监听 127.0.0.1:18080；需要直接访问时显式改为受控接口或 0.0.0.0:18080。
+如使用 Web，把网站完整 Origin 加入 allowed_origins，例如 https://你的站点域名，不能带末尾斜杠/路径。
+  sudo -u fleetops-a /opt/fleetops/a/fleetops-a init --config /etc/fleetops/a/config.yaml
+初始化只输出一次 nodeId 和 credential，请妥善保管，勿写入日志或版本库。重复 init 不覆盖身份。
+  sudo install -m 0644 fleetops-a.service /etc/systemd/system/fleetops-a.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now fleetops-a
+  sudo systemctl status fleetops-a
+  sudo journalctl -u fleetops-a -n 50 --no-pager
+在客户端添加 A 的地址及初始化 credential，HTTP 首次连接必须确认明文风险。
+如数据目录已有不安全 Unix 权限，服务拒绝启动；核实路径/归属后手工调整目录0700、状态文件0600。
+
+三、B 首次安装（可在另一台或同一台 Linux 上）
+同样上传 fleetops-b、b.example.yaml、targets.example.yaml、fleetops-b.service，以下仅用于首次安装。
+  sudo useradd --system --user-group --home-dir /var/lib/fleetops-b --shell /usr/sbin/nologin fleetops-b
+  sudo install -d -m 0755 /opt/fleetops/b
+  sudo install -d -o fleetops-b -g fleetops-b -m 0700 /etc/fleetops/b /var/lib/fleetops-b
+  sudo install -m 0755 fleetops-b /opt/fleetops/b/fleetops-b
+  sudo install -o fleetops-b -g fleetops-b -m 0600 b.example.yaml /etc/fleetops/b/config.yaml
+  sudo install -o fleetops-b -g fleetops-b -m 0600 targets.example.yaml /etc/fleetops/b/targets.yaml
+  sudo -u fleetops-b /opt/fleetops/b/fleetops-b init --config /etc/fleetops/b/config.yaml
+B 的 credential 和身份独立于 A。需要直连时设置 B 的 listen 和对应受控端口；默认回环18081。
+在每台 A 本机签发专用只读 token：
+  sudo -u fleetops-a /opt/fleetops/a/fleetops-a issue-token --config /etc/fleetops/a/config.yaml --name monitor-b
+把返回 token 和该 A 的 nodeId 写入 B 的 targets.yaml（示例值必须替换）：
+  targets:
+    - id: node-01
+      name: 生产节点01
+      url: http://该节点IP:18080
+      expected_node_id: 该A初始化返回的nodeId
+      token: 该A刚签发的token
+目标配置必须为普通文件、Unix权限0600且B用户可读；修改后重启B。不要把B登录凭据当作A机器token。
+  sudo install -m 0644 fleetops-b.service /etc/systemd/system/fleetops-b.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now fleetops-b
+  sudo systemctl status fleetops-b
+  sudo journalctl -u fleetops-b -n 50 --no-pager
+在C的“持续监控”页添加B的独立地址及登录credential。
+默认30秒巡检、5秒超时、3次网络失败阈值、90秒过期；只在状态变化时记录事件。
+SQLite默认保留近30天事件，另有100000条上限；不存完整指标时序。服务单元带日志速率限制，journald的磁盘配额/保留周期由管理员按现有策略设置，不修改系统全局配置。
+
+四、凭据、身份与更新
+A机器token：list-tokens --config X；revoke-token --config X --id TOKEN_ID。撤销不需重启A。
+轮换：先签发新token → 更新B目标 → 重启B并确认成功 → 撤销旧token。
+A/B交互登录凭据：rotate-credential --config X；原交互会话随即失效。
+刷新网页、重启客户端或重启服务后重新登录；会话最长8小时，退出清本地会话并尝试远端撤销。
+换地址请先移除本地连接再添加。相同地址若nodeId变化会拒绝读取，核对是否重装后再明确移除/重添。
+更新A/B前停止对应服务，保留旧二进制和一致的数据备份；保留/etc配置及/var/lib身份/授权/SQLite。
+SQLite请使用在线备份功能或停止B后备份整个数据目录，勿在运行时只复制主db而遗漏WAL。
+新版本验证失败时恢复原二进制；不要重新init、删除数据目录或复用另一台A的身份文件。
+
+五、1Panel / HTTPS / Web
+A/B进程仍由systemd管理。可在1Panel分别建立HTTPS反代网站，上游指向对应A/B的HTTP端口。
+api.nginx.conf是location片段：A上游默认18080，B须改为18081；需在已有证书站点中合并，不能整文件覆盖面板配置。
+代理保留/api/v1路径、Authorization，不重复添加CORS头、不缓存接口；不要记录请求体或Authorization。
+如果1Panel代理运行在容器中，其127.0.0.1不是宿主机。先确认受限宿主接口可达性，不自动改面板网络或暴露明文后端。
+C-Web：将c-web/dist内容上传到1Panel静态网站，配置HTTPS；web.nginx.conf提供路由回退、静态缓存及安全头片段。
+Web只能连接HTTPS节点；A/B必须允许网站精确Origin（含协议、非默认端口）。没有Origin的桌面/B请求仍需认证。
+域名证书必须名称匹配且受信；错误不会降级HTTP。项目未导入测试CA或更改hosts。
+
+六、本机容器模拟（仅测试，项目根目录执行）
+先生成Linux二进制及Windows EXE，然后：
+  docker compose -f deploy/simulation/compose.yaml up -d --build
+  node deploy/simulation/verify.mjs
+仅绑定本机回环：A1 18180、A2 18181、B 18182；三个非root容器、三个独立数据卷，不使用privileged或Docker socket。
+测试会暂时停止/恢复本项目的A1/B，并把B目标设为A1/A2；不要给这些测试卷存生产数据。
+verify脚本验证实际A/B接口、Windows窗口直连、阈值事件、重启与日志脱敏；通过后保留模拟服务和数据卷。
+测试环境的初始化JSON保存在各自卷/data/bootstrap.json，权限0600，仅供夹具使用；正式服务不持久保存明文登录凭据。
+如需手工登录模拟客户端，可在自己终端查看（包含测试秘密，勿转发/提交）：
+  docker compose -f deploy/simulation/compose.yaml exec a1 cat /data/bootstrap.json
+A2/B把a1替换为a2/b。后续启动保留身份与测试credential，不克隆卷。
+停止并保留数据：
+  docker compose -f deploy/simulation/compose.yaml stop
+恢复：
+  docker compose -f deploy/simulation/compose.yaml start
+不要加-v或手工删除卷，除非明确要丢弃全部模拟数据。
+
+七、交互测试与边界
+  npm --prefix c-web run dev
+另开终端：
+  node c-web/scripts/browser-smoke.mjs
+  node c-desktop/scripts/smoke.mjs
+关闭已有5173开发服务后，可另行验证Mygo开发窗口：node c-desktop/scripts/smoke.mjs --dev
+浏览器脚本的HTTPS域名使用Playwright受控响应，不代表真实TLS证书或公网CORS验收；原生脚本使用没有CORS头的HTTP夹具。
+构建后的Web产物不包含mygo-runtime/桌面bridge代码；原生网络在Go层限制目标、路径、方法、头、重定向、超时和实际读写大小。
+截图与机器可读结果在c-web/.artifacts、c-desktop/.artifacts、deploy/simulation/.artifacts。
+容器指标标记container-test，CPU/内存/内核可能来自Docker Linux VM，不等于独立物理服务器。
+Linux VM 实测使用下述专项脚本；是否通过以本次 verification.json 的 passed/checks 为准。开机重启、1Panel站点和可信HTTPS浏览器链路仍需单独验收。
+
+八、已授权的 CentOS 7 VM 测试
+拓扑：192.168.245.11 上运行 A（18080）和 B（18081）；192.168.245.12 上运行 A（18080）。
+2026-11-19 实测通过：原生systemd服务、非root权限、host指标对照、真实Windows生产EXE双A/B连接、无B直连、关闭C后巡检、故障/恢复事件去重、机器token轮换/撤销、A/B进程SIGKILL后自动重启及SQLite事件保持。
+最后一轮服务均保留运行，MySQL仍为active；只验证了enabled配置，未重启整台VM，也未验证可信HTTPS、1Panel。
+监听指定 VM 内网 IP，不监听所有接口。HTTP 为明文，仅供可信测试网络；桌面添加时仍必须确认风险。
+两机为 x86_64、CentOS 7、systemd 219、3.10.0-1062.el7.x86_64；该操作系统已停止常规维护，不建议用于新生产部署。
+现代 systemd 使用原有 fleetops-a.service / fleetops-b.service；CentOS 7 使用对应 .centos7.service，以 fleetops-a.service / fleetops-b.service 名称安装。
+CentOS 7 兼容单元用 ProtectSystem=full、ReadWriteDirectories；不含新版 StateDirectory、单服务日志速率或地址族过滤选项。
+目录由安装步骤显式创建为0700；仍保留专用非root用户、NoNewPrivileges、PrivateTmp、ProtectHome和空能力集。
+这些兼容保护弱于现代模板的 ProtectSystem=strict，不能声称两者安全隔离能力相同；不更改系统 journald 全局配置。
+两机 SSH 主机公钥相同，可能来自克隆；测试未擅自轮换密钥、修改主机名或系统身份。正式使用前应由管理员重新生成独立主机密钥并核验。
+
+deploy/vm-test.py 从标准输入读取 JSON 的 action 和 password，不接受命令行密码，也不在脚本中保存密码。
+action=inspect 只读检查；deploy 仅首次安装，发现已有 FleetOps 目录/用户即拒绝覆盖；verify 只测试这些已安装服务。
+不要在共享终端记录或版本库中保存包含 password 的输入。项目内 .runtime/vm-test/known_hosts 固定 SSH 主机公钥，改变时拒绝连接。
+verify 使用真实默认30秒巡检、3次失败阈值、90秒stale；会停止/恢复新建A/B、向其主进程发送SIGKILL以检查自动重启，并保留身份与SQLite。
+脚本不会重启整个VM，不停止MySQL，不改防火墙或SELinux；systemctl enabled不等于已实测整机重启后的自动启动。
+测试输出 .runtime/vm-test/verification.json，桌面输出 c-desktop/.artifacts/desktop-vm-*.json/png，不包含凭据/token。
+桌面测试通过stdin向smoke.mjs --vm传入目标，仅在内存使用凭据；真实生产EXE读取实际VM接口，不使用模拟响应。
+
+为了后续手工测试，初始化凭据仅保存在各VM root专属目录 /root/.fleetops-vm-test/，目录0700、bootstrap文件0600。
+这是测试夹具的额外明文副本，不是服务的正式凭据存储机制；正式服务仅存散列。
+在对应VM的root终端查看A测试凭据（不要把结果转发、录入日志或提交代码）：
+  cat /root/.fleetops-vm-test/bootstrap-a.json
+B测试凭据只在192.168.245.11：
+  cat /root/.fleetops-vm-test/bootstrap-b.json
+将输出的credential填入Windows客户端对应节点；不要使用SSH登录密码作为FleetOps凭据。
+如已运行rotate-credential，bootstrap副本将失效，需由管理员自行妥善保管新的输出，不能继续依赖旧副本。
+完成测试后可手动systemctl stop fleetops-a / fleetops-b暂停服务，不删除数据；清理用户、目录或凭据副本须另行确认。

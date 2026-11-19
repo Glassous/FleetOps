@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: FleetOps Monitor API
+  version: 0.1.0
+security:
+  - bearer: []
+paths:
+  /api/v1/session:
+    $ref: './agent.openapi.yaml#/paths/~1api~1v1~1session'
+  /api/v1/monitor:
+    get:
+      responses:
+        '200':
+          description: Latest observations, not an operations proxy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [apiVersion, monitorId, instanceId, startedAt, heartbeatAt, generatedAt, staleAfterSeconds, storageHealthy, targets]
+                properties:
+                  apiVersion: { const: '1' }
+                  monitorId: { type: string }
+                  instanceId: { type: string }
+                  startedAt: { type: string, format: date-time }
+                  heartbeatAt: { type: [string, 'null'], format: date-time }
+                  generatedAt: { type: string, format: date-time }
+                  staleAfterSeconds: { type: integer }
+                  storageHealthy: { type: boolean }
+                  targets:
+                    type: array
+                    items: { $ref: '#/components/schemas/Observation' }
+        '401': { description: Authentication required }
+  /api/v1/events:
+    get:
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: before
+          in: query
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Newest first; nextBefore is null at the end
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, nextBefore]
+                properties:
+                  nextBefore: { type: [integer, 'null'] }
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/Event' }
+        '400': { description: Invalid pagination }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+  schemas:
+    Observation:
+      type: object
+      required: [id, name, url, expectedNodeId, state, stale, checkedAt, succeededAt, failures, message, status]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        url: { type: string }
+        expectedNodeId: { type: string }
+        state: { enum: [unknown, online, unreachable, auth_error, tls_error, identity_mismatch, protocol_error] }
+        stale: { type: boolean }
+        checkedAt: { type: [string, 'null'], format: date-time }
+        succeededAt: { type: [string, 'null'], format: date-time }
+        failures: { type: integer, minimum: 0 }
+        message: { type: string }
+        status:
+          oneOf:
+            - { $ref: './agent.openapi.yaml#/components/schemas/Status' }
+            - { type: 'null' }
+    Event:
+      type: object
+      required: [id, at, targetId, targetName, kind, state, message]
+      properties:
+        id: { type: integer }
+        at: { type: string, format: date-time }
+        targetId: { type: string }
+        targetName: { type: string }
+        kind: { enum: [unreachable, recovered, error] }
+        state: { type: string }
+        message: { type: string }

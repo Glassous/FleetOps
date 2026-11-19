@@ -1,0 +1,13 @@
+**
+!a-agent/
+!a-agent/build/
+!a-agent/build/fleetops-a
+!b-monitor/
+!b-monitor/build/
+!b-monitor/build/fleetops-b
+!deploy/
+!deploy/simulation/
+!deploy/simulation/Dockerfile
+!deploy/simulation/entrypoint.sh
+!deploy/simulation/test-configs/
+!deploy/simulation/test-configs/*.yaml
